@@ -25,8 +25,6 @@ def print_and_log(message):
     log_file.write("[" + current_time + "] " + message + "\n")
     log_file.close()
 
-
-
 mysql_ip = os.getenv("MYSQL_HOST")
 mysql_user = os.getenv("MYSQL_USER")
 mysql_pass = os.getenv("MYSQL_PASS")
@@ -50,11 +48,11 @@ def selenium_speedface():
         sleep(5)
         # Find the username input field and enter the username
         element_username = driver.find_element(By.ID, "username") 
-        element_username.send_keys("selenium")
+        element_username.send_keys("speedface")
 
         # Find the password input field and enter the password
         element_password = driver.find_element(By.ID, "password") 
-        element_password.send_keys("Selenium2024")
+        element_password.send_keys("Speedface@2024")
 
         # Find the login button and click it
         button_login = driver.find_element(By.ID, "test") 
@@ -101,13 +99,16 @@ def selenium_speedface():
                 
                 # Check if columns are not empty
                 if columns:
-                    column_list.append(columns[1].text)  # Assuming second column holds desired data
-                    column_list.append(columns[7].text)  # Assuming eighth column holds desired data
-                    if columns[3].text == "chek inn":
-                        column_list.append(0)
-                    elif columns[3].text == "chek out":
-                        column_list.append(1)
-                    
+                    if len(columns[7].text) == 0:
+                        continue
+                    else:
+                        column_list.append(columns[1].text)  # Assuming second column holds desired data
+                        column_list.append(columns[7].text)  # Assuming eighth column holds desired data
+                        if columns[3].text == "chek inn":
+                            column_list.append(0)
+                        elif columns[3].text == "chek out":
+                            column_list.append(1)
+                        
 
                 # Check if column list is not empty before appending to data list
                 if column_list:
@@ -124,7 +125,7 @@ def selenium_speedface():
 
     except Exception as e:
         # Print and log an error message if an exception occurs
-        print_and_log(f"An error occurred: {str(e)}")
+        print_and_log(f"An error occurred1: {str(e)}")
         driver.quit()
         exit()
 
@@ -161,10 +162,11 @@ except mysql.connector.Error as e:
 
 except Exception as e:
     # Print and log an error message if any other exception occurs
-    print_and_log("An error occurred: {}".format(e))
+    print_and_log("An error occurred : {}".format(e))
     exit()
 
 finally:
     # Close the database connection in the finally block
     if 'db' in locals() or 'db' in globals():
         db.close()
+    # print_and_log("succsefully getting data from speedface.")
