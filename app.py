@@ -1,30 +1,25 @@
-from selenium import webdriver
-from time import sleep
-from selenium.webdriver.common.by import By
-import mysql.connector
 import os
+import asyncio
 from datetime import datetime
-
-import os
 from dotenv import load_dotenv
+import mysql.connector
+from playwright.async_api import async_playwright
 
-# Load environment variables from .env file
+# .env ფაილიდან გარემოს ცვლადების ჩატვირთვა
 load_dotenv()
 
-
-# log file name
+# ლოგ ფაილის სახელი და მდებარეობა
 log_filename = "speedface_log"
-# script directory
 script_path = os.path.dirname(os.path.realpath(__file__))
-log_file_path = script_path + "/" + log_filename
+log_file_path = os.path.join(script_path, log_filename)
 
-# function to print messages to terminal and log them in a file
+# ფუნქცია: ბეჭდავს და ინახავს შეტყობინებებს ლოგ ფაილში
 def print_and_log(message):
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    log_file = open(log_file_path, "a")
-    log_file.write("[" + current_time + "] " + message + "\n")
-    log_file.close()
+    with open(log_file_path, "a") as log_file:
+        log_file.write(f"[{current_time}] {message}\n")
 
+# გარემოს ცვლადებიდან მონაცემთა ბაზის პარამეტრების მიღება
 mysql_ip = os.getenv("MYSQL_HOST")
 mysql_user = os.getenv("MYSQL_USER")
 mysql_pass = os.getenv("MYSQL_PASS")
@@ -32,141 +27,109 @@ mysql_db = os.getenv("MYSQL_DB")
 mysql_table = os.getenv("MYSQL_TABLE")
 turnstile_url = os.getenv("TURNSTILE_URL")
 
-# Function to scrape data using Selenium
-def selenium_speedface():
+# ასინქრონული ფუნქცია: მონაცემების წამოღება ვებსაიტიდან Playwright-ის გამოყენებით
+async def playwright_speedface():
+    data_list = []
     try:
-        # Initialize Chrome WebDriver
-        option = webdriver.ChromeOptions()
-        option.add_argument("--headless")
-        option.add_argument("--no-sandbox")
-        driver = webdriver.Chrome(options=option)
-        driver.set_window_size(1500,800)
+        async with async_playwright() as p:
+            # ბრაუზერის გაშვება headless რეჟიმში
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context()
+            page = await context.new_page()
 
-        # Open the specified URL
-        driver.get(turnstile_url)
+            # საიტის გახსნა
+            await page.goto(turnstile_url)
+            await page.wait_for_timeout(5000)  # დაველოდოთ 5 წამი
 
-        sleep(5)
-        # Find the username input field and enter the username
-        element_username = driver.find_element(By.ID, "username") 
-        element_username.send_keys("speedface")
+            # მომხმარებლის სახელის და პაროლის შევსება
+            await page.fill("#username", "speedface")
+            await page.fill("#password", "Speedface@2024")
+            await page.click("#test")  # შესვლის ღილაკზე დაჭერა
+            await page.wait_for_timeout(5000)
 
-        # Find the password input field and enter the password
-        element_password = driver.find_element(By.ID, "password") 
-        element_password.send_keys("Speedface@2024")
+            # ანგარიშის მენიუზე დაჭერა
+            await page.click("#AccMenu")
+            await page.wait_for_timeout(5000)
 
-        # Find the login button and click it
-        button_login = driver.find_element(By.ID, "test") 
-        button_login.click()
+            # რეპორტების სექციაზე გადასვლა
+            await page.click("xpath=//img[@src='public/images/menuTree/comm_reports.png']")
+            await page.wait_for_timeout(5000)
 
-        # Wait for 5 seconds for the page to load
-        sleep(5)
+            # დღევანდელი მოვლენების ნახვა
+            await page.click("xpath=//span[text()='Events From Today']")
+            await page.wait_for_timeout(5000)
 
-        # Find and click on the account menu
-        click_accmenu = driver.find_element(By.ID, "AccMenu") 
-        click_accmenu.click()
+            # ცხრილის მოძებნა
+            tables = await page.query_selector_all(".objbox")
+            if not tables:
+                print_and_log("ცხრილში მონაცემები ვერ მოიძებნა.")
+                return []
 
-        # Wait for 5 seconds for the menu to expand
-        sleep(5)
+            first_table = tables[0]
+            rows = await first_table.query_selector_all("tr")
 
-        # Find and click on the specific image element
-        element_img = driver.find_element(By.XPATH, "//img[@src='public/images/menuTree/comm_reports.png']")
-        element_img.click()
-
-        # Wait for 5 seconds for the page to load
-        sleep(5)
-
-        # Find and click on the specific span element with text 'Events From Today'
-        element_span = driver.find_element(By.XPATH, "//span[text()='Events From Today']")
-        element_span.click()
-
-        # Wait for 5 seconds for the page to load
-        sleep(5)
-
-        # Find the table with class name 'objbox'
-        table = driver.find_elements(By.CLASS_NAME, "objbox")
-
-        # If the table is found, select the first one
-        first_tr = table[0]
-        # Find all rows in the table
-        rows = first_tr.find_elements(By.TAG_NAME, "tr")
-        data_list = []
-        
-        if len(rows) > 1:
-            # Loop through each row and extract data from specific columns
+            # ცხრილის თითოეული მწკრივის დამუშავება
             for row in rows:
-                columns = row.find_elements(By.TAG_NAME, "td")
-                column_list = []
-                
-                # Check if columns are not empty
-                if columns:
-                    if len(columns[7].text) == 0:
-                        continue
-                    else:
-                        column_list.append(columns[1].text)  # Assuming second column holds desired data
-                        column_list.append(columns[7].text)  # Assuming eighth column holds desired data
-                        if columns[3].text == "chek inn":
-                            column_list.append(0)
-                        elif columns[3].text == "chek out":
-                            column_list.append(1)
-                        
+                cols = await row.query_selector_all("td")
+                if len(cols) > 7:
+                    col_7_text = await cols[7].inner_text()
+                    if not col_7_text.strip():
+                        continue  # გამოტოვება ცარიელი მნიშვნელობების შემთხვევაში
 
-                # Check if column list is not empty before appending to data list
-                if column_list:
-                    data_list.append(column_list)
+                    col_1_text = await cols[1].inner_text()
+                    col_3_text = await cols[3].inner_text()
 
-            # Return the extracted data
+                    # შესვლის/გასვლის სტატუსის ამოცნობა
+                    in_out_state = 0 if col_3_text.strip().lower() == "chek inn" else 1 if col_3_text.strip().lower() == "chek out" else None
+                    if in_out_state is not None:
+                        data_list.append([col_1_text.strip(), col_7_text.strip(), in_out_state])
+
+            # ბრაუზერის დახურვა
+            await browser.close()
             return data_list
-        
-        else:
-            # Print and log a message if no data is found in the table
-            # print_and_log("No Found Data in Today's table")
-            driver.quit()
-            exit()
 
     except Exception as e:
-        # Print and log an error message if an exception occurs
-        print_and_log(f"An error occurred1: {str(e)}")
-        driver.quit()
-        exit()
+        print_and_log(f"შეცდომა მოხდა: {str(e)}")
+        return []
+
+# ძირითადი ფუნქცია: მონაცემების მიღება და MySQL-ში შენახვა
+async def main():
+    data_list = await playwright_speedface()
+
+    if not data_list:
+        return  # თუ ცარიელია, არაფერს ვაკეთებთ
+
+    try:
+        # MySQL მონაცემთა ბაზასთან დაკავშირება
+        db = mysql.connector.connect(
+            host=mysql_ip,
+            user=mysql_user,
+            password=mysql_pass,
+            database=mysql_db
+        )
+        cursor = db.cursor()
+
+        # თითოეული ჩანაწერის შენახვა ბაზაში
+        for data in data_list:
+            insert_value = (
+                f"INSERT IGNORE INTO `{mysql_table}` (date_time, card_number, in_out_state) "
+                f"VALUES ('{data[0]}', '{data[1]}', {data[2]}) "
+                f"ON DUPLICATE KEY UPDATE id=id"
+            )
+            cursor.execute(insert_value)
+            db.commit()
+
+    except mysql.connector.Error as e:
+        print_and_log("MySQL-თან დაკავშირების შეცდომა: {}".format(e))
+
+    except Exception as e:
+        print_and_log("შეცდომა მონაცემების შენახვისას: {}".format(e))
 
     finally:
-        # Always quit the WebDriver in the finally block to ensure it's closed properly
-        driver.quit()
+        # მონაცემთა ბაზის კავშირის დახურვა
+        if 'db' in locals():
+            db.close()
 
-# Call the function to scrape data
-data_list = selenium_speedface()
-
-try:
-    # MySQL connection
-    db = mysql.connector.connect(
-        host=mysql_ip,
-        user=mysql_user,
-        password=mysql_pass,
-        database=mysql_db
-    )
-    db.get_warnings = False
-    cursor = db.cursor()
-
-    # print_and_log("Connected successfully to MySQL on %s" % mysql_ip)
-
-    # Loop through the data list and insert data into the database
-    for data in data_list:
-        insert_value = f"INSERT IGNORE INTO `turnstile_records` (date_time, card_number, in_out_state) VALUES ('{data[0]}', '{data[1]}', {data[2]}) ON DUPLICATE KEY UPDATE id=id"
-        cursor.execute(insert_value)
-        db.commit()
-
-except mysql.connector.Error as e:
-    # Print and log an error message if a MySQL error occurs
-    print_and_log("Error connecting to MySQL: {}".format(e))
-    exit()
-
-except Exception as e:
-    # Print and log an error message if any other exception occurs
-    print_and_log("An error occurred : {}".format(e))
-    exit()
-
-finally:
-    # Close the database connection in the finally block
-    if 'db' in locals() or 'db' in globals():
-        db.close()
-    # print_and_log("succsefully getting data from speedface.")
+# სკრიპტის გაშვების წერტილი
+if __name__ == "__main__":
+    asyncio.run(main())
